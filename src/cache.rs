@@ -169,7 +169,7 @@ pub fn restore_cache(request: RestoreRequest) -> Result<RestoreResult> {
         started,
     )?;
     check_timeout(started)?;
-    materialize(&staging, &request.context.workspace)?;
+    materialize(&staging, &request.context.workspace, started)?;
     Ok(RestoreResult {
         cache_match,
         digest: Some(sha256(&metadata.key)),
@@ -182,7 +182,7 @@ pub fn save_cache(request: SaveRequest) -> Result<SaveResult> {
     let started = Instant::now();
     let repository = ensure_repository_directory(&request.context)?;
     let digest = sha256(&request.key);
-    let entries = collect_entries(&request.context.workspace, &request.patterns)?;
+    let entries = collect_entries(&request.context.workspace, &request.patterns, started)?;
     check_timeout(started)?;
     if entries.is_empty() {
         return Ok(SaveResult::SkippedNoPaths);

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -73,21 +73,23 @@ pub fn paths_match_patterns(paths: &[String], patterns: &[String]) -> Result<boo
                 .any(|byte| matches!(byte, b'*' | b'?' | b'[' | b'{'))
         })
         .collect::<Vec<_>>();
+    let matched = paths
+        .iter()
+        .filter(|path| matcher.is_match(path))
+        .collect::<HashSet<_>>();
 
     Ok(paths.iter().all(|path| {
-        matcher.is_match(path)
+        matched.contains(path)
             || literal_directories.iter().any(|directory| {
-                path.strip_prefix(directory)
-                    .is_some_and(|suffix| suffix.starts_with('/'))
+                path == directory
+                    || path
+                        .strip_prefix(directory)
+                        .is_some_and(|suffix| suffix.starts_with('/'))
             })
-            || patterns.iter().any(|pattern| {
-                let portable = pattern.replace('\\', "/");
-                let prefix = portable
-                    .split(['*', '?', '[', '{'])
-                    .next()
-                    .unwrap_or("")
-                    .trim_end_matches('/');
-                !prefix.is_empty() && (path == prefix || prefix.starts_with(&format!("{path}/")))
+            || matched.iter().any(|matched_path| {
+                matched_path
+                    .strip_prefix(path)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
             })
     }))
 }
@@ -188,13 +190,18 @@ fn add_with_ancestors(
     Ok(())
 }
 
-pub fn collect_entries(workspace: &Path, patterns: &[String]) -> Result<Vec<ArchiveEntry>> {
+pub fn collect_entries(
+    workspace: &Path,
+    patterns: &[String],
+    started: Instant,
+) -> Result<Vec<ArchiveEntry>> {
     let matcher = build_matcher(patterns)?;
     for pattern in patterns {
         reject_symlink_prefixes(workspace, pattern)?;
     }
     let mut matched = Vec::new();
     for item in walk(workspace) {
+        check_operation_timeout(started)?;
         let item = item.map_err(|error| CacheError::new("source-walk", error.to_string()))?;
         if item.depth() == 0 {
             continue;
@@ -216,6 +223,7 @@ pub fn collect_entries(workspace: &Path, patterns: &[String]) -> Result<Vec<Arch
         let metadata = fs::symlink_metadata(&root).cache_err("source-stat")?;
         if metadata.is_dir() {
             for item in walk(&root) {
+                check_operation_timeout(started)?;
                 let item =
                     item.map_err(|error| CacheError::new("source-walk", error.to_string()))?;
                 add_with_ancestors(workspace, item.path(), &mut entries)?;
@@ -527,7 +535,7 @@ pub fn extract_archive(
     Ok((files, bytes))
 }
 
-pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
+pub fn materialize(staging: &Path, workspace: &Path, started: Instant) -> Result<()> {
     let mut names = fs::read_dir(staging)
         .cache_err("materialize")?
         .map(|item| {
@@ -538,6 +546,7 @@ pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
     names.sort();
     let mut top_directory_modes = BTreeMap::new();
     for name in &names {
+        check_operation_timeout(started)?;
         match fs::symlink_metadata(workspace.join(name)) {
             Ok(_) => {
                 return Err(CacheError::new(
@@ -564,6 +573,7 @@ pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
     }
     let mut moved = Vec::new();
     for name in &names {
+        check_operation_timeout(started)?;
         if let Err(error) = fs::rename(staging.join(name), workspace.join(name)) {
             for prior in moved.iter().rev() {
                 fs::rename(workspace.join(prior), staging.join(prior))
@@ -593,6 +603,16 @@ pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
         }
         restore_top_directory_modes(staging, &top_directory_modes)?;
         return Err(error);
+    }
+    Ok(())
+}
+
+fn check_operation_timeout(started: Instant) -> Result<()> {
+    if started.elapsed() > OPERATION_TIMEOUT {
+        return Err(CacheError::new(
+            "operation-timeout",
+            "cache operation exceeded 20 minutes",
+        ));
     }
     Ok(())
 }

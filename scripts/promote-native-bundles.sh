@@ -7,8 +7,25 @@ if [[ $# -ne 2 ]]; then
 fi
 
 repository_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-x64_artifact=$(cd "$1" && pwd)
-arm64_artifact=$(cd "$2" && pwd)
+resolve_artifact_directory() {
+  local root=$1
+  local architecture=$2
+  local binary="local-cache-linux-${architecture}"
+  local candidate=''
+  local count=0
+  while IFS= read -r directory; do
+    candidate=$directory
+    ((count += 1))
+  done < <(find "$root" -type f -name "$binary" -exec dirname {} \; | sort -u)
+  [[ $count -eq 1 ]] || {
+    echo "expected exactly one ${binary} below ${root}" >&2
+    exit 1
+  }
+  printf '%s\n' "$candidate"
+}
+
+x64_artifact=$(resolve_artifact_directory "$1" x64)
+arm64_artifact=$(resolve_artifact_directory "$2" arm64)
 
 verify_artifact() {
   local directory=$1

@@ -234,3 +234,47 @@ fn restore_rejects_entries_outside_the_requested_path_scope() {
     assert_eq!(error.code, "path-scope-mismatch");
     assert!(!fixture.workspace.join("saved.txt").exists());
 }
+
+#[test]
+fn restore_accepts_ancestor_directories_for_nested_glob_patterns() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(fixture.workspace.join("src/app")).unwrap();
+    fs::write(fixture.workspace.join("src/app/file.txt"), "cached").unwrap();
+    save(&fixture, "glob-scope", &["src/*/file.txt"]).unwrap();
+    fs::remove_dir_all(fixture.workspace.join("src")).unwrap();
+
+    let result = restore_cache(RestoreRequest {
+        context: fixture.context.clone(),
+        key: "glob-scope".to_owned(),
+        patterns: vec!["src/*/file.txt".to_owned()],
+        restore_keys: vec![],
+    })
+    .unwrap();
+    assert_eq!(result.cache_match, RestoreMatch::Exact);
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.join("src/app/file.txt")).unwrap(),
+        "cached"
+    );
+}
+
+#[test]
+fn restore_accepts_descendants_of_literal_directory_patterns() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(fixture.workspace.join("a/b/c")).unwrap();
+    fs::write(fixture.workspace.join("a/b/c/file.txt"), "cached").unwrap();
+    save(&fixture, "literal-scope", &["a/b"]).unwrap();
+    fs::remove_dir_all(fixture.workspace.join("a")).unwrap();
+
+    let result = restore_cache(RestoreRequest {
+        context: fixture.context.clone(),
+        key: "literal-scope".to_owned(),
+        patterns: vec!["a/b".to_owned()],
+        restore_keys: vec![],
+    })
+    .unwrap();
+    assert_eq!(result.cache_match, RestoreMatch::Exact);
+    assert_eq!(
+        fs::read_to_string(fixture.workspace.join("a/b/c/file.txt")).unwrap(),
+        "cached"
+    );
+}

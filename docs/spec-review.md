@@ -1,6 +1,6 @@
 # v1 specification review record
 
-Status: **changes incorporated; awaiting product-owner approval before implementation.**
+Status: **changes incorporated; implementation approved on 2026-08-28; release ownership still to be assigned.**
 
 | Dimension | First-pass result | Required changes incorporated |
 | --- | --- | --- |
@@ -12,14 +12,13 @@ Status: **changes incorporated; awaiting product-owner approval before implement
 
 ## Decisions made
 
-1. No fork of the obsolete local-cache action: v1 is a clean Node 24 design with no host shell or compression-tool dependency.
+1. No fork of the obsolete local-cache action: v1 is a clean Rust design with dependency-free Node 24 launchers and no host shell or compression-tool dependency.
 2. Two explicit actions, not a post-action wrapper: `save` runs after all gates under `if: success()`.
 3. No shared cache root or symlink preservation in v1. This fits immutable artifact and package-download-cache workloads, not `node_modules`.
 4. Host retention drains its runner rather than introducing a cache daemon or fragile lease protocol.
 
-## Approval gates before implementation
+## Approval record
 
-- Approve the Linux/self-hosted/repository-exclusive scope.
-- Approve explicit `restore`/`save` calls.
-- Approve the v1 fixed limits and no-symlink rule, or provide revised workload limits.
-- Confirm release-maintainer ownership and the minimum supported Actions Runner version.
+- The Linux/self-hosted/repository-exclusive scope, explicit lifecycle, fixed limits, and no-symlink rule were approved for implementation on 2026-08-28.
+- Actions Runner v2.328.0 is the minimum supported release.
+- Release-maintainer ownership must be confirmed before publishing v1.

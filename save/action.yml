@@ -1,0 +1,26 @@
+name: Save local cache
+description: Save a local filesystem cache after successful workflow gates
+author: shrivatsas
+inputs:
+  path:
+    description: Workspace-relative newline-delimited literal or glob paths
+    required: true
+  key:
+    description: Exact cache key (1-512 UTF-8 bytes)
+    required: true
+  cache-dir:
+    description: Absolute repository-exclusive cache root; overrides CACHE_DIR
+    required: false
+  fail-on-cache-error:
+    description: Fail the step on an operational cache error
+    required: false
+    default: "true"
+outputs:
+  cache-save:
+    description: saved, raced, skipped-no-paths, or error
+runs:
+  using: node24
+  main: index.js
+branding:
+  icon: archive
+  color: gray-dark

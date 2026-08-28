@@ -1,0 +1,31 @@
+name: Restore local cache
+description: Restore a verified local filesystem cache on a Linux self-hosted runner
+author: shrivatsas
+inputs:
+  path:
+    description: Workspace-relative newline-delimited literal or glob paths
+    required: true
+  key:
+    description: Exact cache key (1-512 UTF-8 bytes)
+    required: true
+  restore-keys:
+    description: Ordered newline-delimited key prefixes used after an exact miss
+    required: false
+  cache-dir:
+    description: Absolute repository-exclusive cache root; overrides CACHE_DIR
+    required: false
+  fail-on-cache-error:
+    description: Fail the step on an operational cache error
+    required: false
+    default: "true"
+outputs:
+  cache-hit:
+    description: true only when the exact requested key was restored
+  cache-match:
+    description: exact, fallback, miss, or error
+runs:
+  using: node24
+  main: index.js
+branding:
+  icon: archive
+  color: gray-dark

@@ -2,7 +2,7 @@
 
 ## Purpose and boundary
 
-`github-actions-local-cache` provides two JavaScript GitHub Actions—`restore` and `save`—for persistent local filesystem caches on Linux self-hosted runners. Workflows restore before use and place save at the end of a successful gate; this avoids a post-action save that cannot prove later steps passed.
+`github-actions-local-cache` provides two GitHub Actions—`restore` and `save`—for persistent local filesystem caches on Linux self-hosted runners. A dependency-free Node 24 launcher selects a bundled native executable; the cache engine and archive implementation are Rust. Workflows restore before use and place save at the end of a successful gate; this avoids a post-action save that cannot prove later steps passed.
 
 It is not a remote cache service, runner modification, package-manager installer, or retention daemon. The runner operator supplies the mounted cache root, access controls, quota, and retention. Cache contents are untrusted optimization data, never authority for source, release, or security decisions.
 
@@ -15,7 +15,7 @@ It is not a remote cache service, runner modification, package-manager installer
 
 ## Supported envelope and setup
 
-v1 supports Linux self-hosted `linux-x64` and `linux-arm64`, a local POSIX filesystem, and a documented minimum Actions Runner release that supports JavaScript `node24`. It has no network calls and needs no GitHub token.
+v1 supports Linux self-hosted `linux-x64` and `linux-arm64`, a local POSIX filesystem, and Actions Runner v2.328.0 or newer for the Node 24 launcher. It has no network calls and needs no GitHub token.
 
 The root is supplied by `cache-dir` or `CACHE_DIR`; absence is an error. It must be absolute, existing, non-symlinked, outside `GITHUB_WORKSPACE`, owned by the runner user with mode `0700`. Root components are verified without following symlinks. Entries are also namespaced by immutable repository numeric ID for organization and collision avoidance; this is defense in depth, not a security boundary, and never makes a shared root acceptable. Windows, macOS, NFS/SMB, containers without the mount, shared roots, and cross-OS caching are excluded.
 
@@ -68,7 +68,7 @@ Save uses a same-filesystem private staging directory. It fsyncs payload/metadat
 
 ## Archive safety and limits
 
-`tar.zst` is created/read by versioned bundled dependencies, not host tar/pigz or a shell. Traversal is rooted in private staging and never follows symlinks.
+`tar.zst` is created/read by version-locked Rust `tar` and `zstd` dependencies, not host tar/pigz or a shell. Traversal is rooted in private staging and never follows symlinks.
 
 Restore verifies digest then rejects absolute/traversal paths, duplicates/conflicts, all links, special files, and non-directory parents. Limits: 2 GiB compressed, 8 GiB extracted, 100,000 entries, 1 GiB/file, 1 MiB metadata, 20-minute restore. Only complete verified staging content is materialized; errors leave workspace unchanged.
 
@@ -78,7 +78,7 @@ Save applies the same no-symlink rule to source/parents, rejects special and har
 
 Invalid exact entries follow the quarantine-then-fallback behavior defined under Entry format and lifecycle. Operational errors fail by default. With `fail-on-cache-error=false`, restore warns and returns `cache-match=error`; save warns and returns `cache-save=error`. Disk/inode exhaustion and lock timeout are classified errors. Logs contain stable event names and key digests only: match/failure class, bytes/files, elapsed time, and save result.
 
-The action ships committed Node 24 bundles. Contract changes follow SemVer; schema changes use a new directory version and documented reader/writer coexistence, capacity headroom, deprecation, and retention plan. Releases use protected immutable tags, full SHAs, notes, and bundle checksum/provenance; consumers pin full SHAs.
+The action ships committed static Rust executables for Linux x64 and arm64 plus small committed Node 24 launchers. Contract changes follow SemVer; schema changes use a new directory version and documented reader/writer coexistence, capacity headroom, deprecation, and retention plan. Releases use protected immutable tags, full SHAs, notes, and bundle checksum/provenance; consumers pin full SHAs.
 
 Before v1 release: unit tests for grammar, matching, metadata, paths; miss/save/exact/fallback/corrupt/concurrent/interrupted integration tests; malicious archive/root/workspace/source-mutation fixtures; lock, ENOSPC/inode, conflict, limit, retention fault tests; successful/failed-workflow save tests; runner compatibility and cold/warm benchmark checks.
 

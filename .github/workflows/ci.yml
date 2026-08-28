@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83f3 # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Rust 1.88
+        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
+      - name: Check formatting
+        run: cargo +1.88.0 fmt --check
+      - name: Lint
+        run: cargo +1.88.0 clippy --locked --all-targets -- -D warnings
+      - name: Test
+        run: cargo +1.88.0 test --locked
+      - name: Build native release executable
+        run: cargo +1.88.0 build --locked --release
+      - name: Inspect release executable
+        run: file target/release/local-cache
+      - name: Provision smoke-test cache root
+        run: install -d -m 0700 "${{ runner.temp }}/local-cache-root"
+      - name: Create smoke-test input
+        run: printf 'verified\n' > ci-smoke.txt
+      - id: smoke-save
+        name: Exercise bundled save action
+        uses: ./save
+        with:
+          path: ci-smoke.txt
+          key: ci-smoke-${{ runner.arch }}-${{ github.sha }}
+          cache-dir: ${{ runner.temp }}/local-cache-root
+      - name: Remove smoke-test input
+        run: rm ci-smoke.txt
+      - id: smoke-restore
+        name: Exercise bundled restore action
+        uses: ./restore
+        with:
+          path: ci-smoke.txt
+          key: ci-smoke-${{ runner.arch }}-${{ github.sha }}
+          cache-dir: ${{ runner.temp }}/local-cache-root
+      - name: Verify smoke-test result
+        env:
+          SAVE_RESULT: ${{ steps.smoke-save.outputs.cache-save }}
+          RESTORE_MATCH: ${{ steps.smoke-restore.outputs.cache-match }}
+        run: |
+          test "$SAVE_RESULT" = saved
+          test "$RESTORE_MATCH" = exact
+          test "$(cat ci-smoke.txt)" = verified

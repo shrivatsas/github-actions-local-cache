@@ -76,7 +76,7 @@ Save applies the same no-symlink rule to source/parents, rejects special and har
 
 ## Errors, releases, and verification
 
-Invalid exact entries are quarantined under lock before fallback as specified in the entry lifecycle. Operational errors fail by default. With `fail-on-cache-error=false`, restore warns and returns `cache-match=error`; save warns and returns `cache-save=error`. Disk/inode exhaustion and lock timeout are classified errors. Logs contain stable event names and key digests only: match/failure class, bytes/files, elapsed time, and save result.
+Invalid exact entries follow the quarantine-then-fallback behavior defined under Entry format and lifecycle. Operational errors fail by default. With `fail-on-cache-error=false`, restore warns and returns `cache-match=error`; save warns and returns `cache-save=error`. Disk/inode exhaustion and lock timeout are classified errors. Logs contain stable event names and key digests only: match/failure class, bytes/files, elapsed time, and save result.
 
 The action ships committed Node 24 bundles. Contract changes follow SemVer; schema changes use a new directory version and documented reader/writer coexistence, capacity headroom, deprecation, and retention plan. Releases use protected immutable tags, full SHAs, notes, and bundle checksum/provenance; consumers pin full SHAs.
 

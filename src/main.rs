@@ -63,6 +63,7 @@ fn run_restore() -> Result<(), CacheError> {
     let result = restore_cache(RestoreRequest {
         context,
         key,
+        patterns,
         restore_keys,
     })?;
     set_output(

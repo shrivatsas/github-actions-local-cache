@@ -16,15 +16,22 @@ jobs:
         include:
           - runner: ubuntu-24.04
             architecture: x64
+            target: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             architecture: arm64
+            target: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83f3 # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       - name: Install Rust 1.88
         run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
+      - name: Install static Linux toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+          rustup target add --toolchain 1.88.0 ${{ matrix.target }}
       - name: Check formatting
         run: cargo +1.88.0 fmt --check
       - name: Lint
@@ -32,9 +39,18 @@ jobs:
       - name: Test
         run: cargo +1.88.0 test --locked
       - name: Build native release executable
-        run: cargo +1.88.0 build --locked --release
+        run: CC=musl-gcc cargo +1.88.0 build --locked --release --target ${{ matrix.target }}
+      - name: Stage native executable in action bundles
+        run: |
+          install -m 0755 "target/${{ matrix.target }}/release/local-cache" "restore/dist/local-cache-linux-${{ matrix.architecture }}"
+          install -m 0755 "target/${{ matrix.target }}/release/local-cache" "save/dist/local-cache-linux-${{ matrix.architecture }}"
       - name: Inspect release executable
-        run: file target/release/local-cache
+        run: |
+          file "target/${{ matrix.target }}/release/local-cache"
+          file "restore/dist/local-cache-linux-${{ matrix.architecture }}"
+          file "restore/dist/local-cache-linux-${{ matrix.architecture }}" | grep -E "statically linked|static-pie linked"
+          cmp "target/${{ matrix.target }}/release/local-cache" "restore/dist/local-cache-linux-${{ matrix.architecture }}"
+          cmp "target/${{ matrix.target }}/release/local-cache" "save/dist/local-cache-linux-${{ matrix.architecture }}"
       - name: Provision smoke-test cache root
         run: install -d -m 0700 "${{ runner.temp }}/local-cache-root"
       - name: Create smoke-test input
@@ -63,3 +79,17 @@ jobs:
           test "$SAVE_RESULT" = saved
           test "$RESTORE_MATCH" = exact
           test "$(cat ci-smoke.txt)" = verified
+      - name: Prepare verified native bundle artifact
+        run: |
+          mkdir bundle
+          cp "restore/dist/local-cache-linux-${{ matrix.architecture }}" bundle/
+          (
+            cd bundle
+            sha256sum "local-cache-linux-${{ matrix.architecture }}" > "local-cache-linux-${{ matrix.architecture }}.sha256"
+          )
+      - name: Upload verified native bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: local-cache-linux-${{ matrix.architecture }}
+          path: bundle/
+          if-no-files-found: error

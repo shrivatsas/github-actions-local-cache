@@ -3,6 +3,7 @@ mod common;
 use std::fs::{self, File};
 use std::io;
 use std::os::unix::fs::{PermissionsExt, symlink};
+use std::time::Instant;
 
 use github_actions_local_cache::archive::extract_archive;
 use github_actions_local_cache::digest::sha256;
@@ -72,9 +73,14 @@ fn restore_rejects_traversal_and_link_archives() {
     let traversal = malicious_archive(&fixture, b"../escape", EntryType::Regular);
     let staging = fixture.temporary.path().join("extract-traversal");
     assert_eq!(
-        extract_archive(&traversal, &staging, &["../escape".to_owned()])
-            .unwrap_err()
-            .code,
+        extract_archive(
+            &traversal,
+            &staging,
+            &["../escape".to_owned()],
+            Instant::now()
+        )
+        .unwrap_err()
+        .code,
         "unsafe-archive"
     );
     assert!(!fixture.temporary.path().join("escape").exists());
@@ -82,7 +88,7 @@ fn restore_rejects_traversal_and_link_archives() {
     let link = malicious_archive(&fixture, b"link", EntryType::Symlink);
     let staging = fixture.temporary.path().join("extract-link");
     assert_eq!(
-        extract_archive(&link, &staging, &["link".to_owned()])
+        extract_archive(&link, &staging, &["link".to_owned()], Instant::now())
             .unwrap_err()
             .code,
         "unsafe-archive"
@@ -102,6 +108,7 @@ fn quarantine_does_not_follow_a_malicious_entry_symlink() {
     let result = restore_cache(RestoreRequest {
         context: fixture.context.clone(),
         key: "malicious".to_owned(),
+        patterns: vec!["**".to_owned()],
         restore_keys: vec![],
     })
     .unwrap();

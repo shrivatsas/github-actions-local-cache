@@ -1,0 +1,66 @@
+name: Promote verified native bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful CI run ID containing local-cache-linux-x64 and local-cache-linux-arm64 artifacts
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm source CI run succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'source_run_id must be numeric' >&2; exit 1; }
+          run_json=$(gh run view "$SOURCE_RUN_ID" --json conclusion,workflowName,headRepository)
+          test "$(jq -r .conclusion <<<"$run_json")" = success
+          test "$(jq -r .workflowName <<<"$run_json")" = CI
+          test "$(jq -r .headRepository.fullName <<<"$run_json")" = "${{ github.repository }}"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Create promotion branch
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: git switch --create "promote-native-bundles-${SOURCE_RUN_ID}"
+      - name: Download verified artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          mkdir -p artifacts/x64 artifacts/arm64
+          gh run download "$SOURCE_RUN_ID" --name local-cache-linux-x64 --dir artifacts/x64
+          gh run download "$SOURCE_RUN_ID" --name local-cache-linux-arm64 --dir artifacts/arm64
+      - name: Promote verified bundles
+        run: scripts/promote-native-bundles.sh artifacts/x64 artifacts/arm64
+      - name: Commit promoted bundles
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          git add restore/dist save/dist checksums.sha256
+          git diff --cached --quiet && { echo 'No bundle changes to promote'; exit 1; }
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "release: promote verified native bundles from run $SOURCE_RUN_ID"
+          git push --set-upstream origin "promote-native-bundles-${SOURCE_RUN_ID}"
+      - name: Open promotion pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "promote-native-bundles-${SOURCE_RUN_ID}" \
+            --title "release: promote verified native bundles from run ${SOURCE_RUN_ID}" \
+            --body "Promotes the checksummed x64 and arm64 native bundles from successful CI run ${SOURCE_RUN_ID}. Merge this PR manually after review."

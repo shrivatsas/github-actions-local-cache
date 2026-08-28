@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -56,6 +56,42 @@ fn build_matcher(patterns: &[String]) -> Result<GlobSet> {
     builder
         .build()
         .map_err(|error| CacheError::new("invalid-input", error.to_string()))
+}
+
+/// Returns whether every archived path is within the restore request's declared
+/// path scope.  Directory ancestors are retained in an archive so that empty
+/// directories and permissions can be restored; a literal directory pattern
+/// therefore also permits its descendants.
+pub fn paths_match_patterns(paths: &[String], patterns: &[String]) -> Result<bool> {
+    let matcher = build_matcher(patterns)?;
+    let literal_directories = patterns
+        .iter()
+        .map(|pattern| pattern.replace('\\', "/"))
+        .filter(|pattern| {
+            !pattern
+                .bytes()
+                .any(|byte| matches!(byte, b'*' | b'?' | b'[' | b'{'))
+        })
+        .collect::<Vec<_>>();
+    let matched = paths
+        .iter()
+        .filter(|path| matcher.is_match(path))
+        .collect::<HashSet<_>>();
+
+    Ok(paths.iter().all(|path| {
+        matched.contains(path)
+            || literal_directories.iter().any(|directory| {
+                path == directory
+                    || path
+                        .strip_prefix(directory)
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+            || matched.iter().any(|matched_path| {
+                matched_path
+                    .strip_prefix(path)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+    }))
 }
 
 fn reject_symlink_prefixes(workspace: &Path, pattern: &str) -> Result<()> {
@@ -154,13 +190,18 @@ fn add_with_ancestors(
     Ok(())
 }
 
-pub fn collect_entries(workspace: &Path, patterns: &[String]) -> Result<Vec<ArchiveEntry>> {
+pub fn collect_entries(
+    workspace: &Path,
+    patterns: &[String],
+    started: Instant,
+) -> Result<Vec<ArchiveEntry>> {
     let matcher = build_matcher(patterns)?;
     for pattern in patterns {
         reject_symlink_prefixes(workspace, pattern)?;
     }
     let mut matched = Vec::new();
     for item in walk(workspace) {
+        check_operation_timeout(started)?;
         let item = item.map_err(|error| CacheError::new("source-walk", error.to_string()))?;
         if item.depth() == 0 {
             continue;
@@ -182,6 +223,7 @@ pub fn collect_entries(workspace: &Path, patterns: &[String]) -> Result<Vec<Arch
         let metadata = fs::symlink_metadata(&root).cache_err("source-stat")?;
         if metadata.is_dir() {
             for item in walk(&root) {
+                check_operation_timeout(started)?;
                 let item =
                     item.map_err(|error| CacheError::new("source-walk", error.to_string()))?;
                 add_with_ancestors(workspace, item.path(), &mut entries)?;
@@ -236,8 +278,7 @@ impl<W: Write> Write for LimitedWriter<W> {
     }
 }
 
-pub fn create_archive(entries: &[ArchiveEntry], output: &Path) -> Result<()> {
-    let started = Instant::now();
+pub fn create_archive(entries: &[ArchiveEntry], output: &Path, started: Instant) -> Result<()> {
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -366,6 +407,7 @@ pub fn extract_archive(
     payload: &Path,
     staging: &Path,
     expected_paths: &[String],
+    started: Instant,
 ) -> Result<(usize, u64)> {
     fs::create_dir(staging).cache_err("restore-staging")?;
     fs::set_permissions(staging, fs::Permissions::from_mode(0o700)).cache_err("restore-staging")?;
@@ -373,13 +415,12 @@ pub fn extract_archive(
         .cache_err("archive-read")?;
     let mut archive = Archive::new(TimedReader {
         inner: decoder,
-        started: Instant::now(),
+        started,
     });
     let mut seen = BTreeMap::<String, EntryKind>::new();
     let mut directories = Vec::new();
     let mut files = 0_usize;
     let mut bytes = 0_u64;
-    let started = Instant::now();
     let archive_entries = archive.entries().cache_err("archive-read")?;
     for item in archive_entries {
         if started.elapsed() > OPERATION_TIMEOUT {
@@ -494,7 +535,7 @@ pub fn extract_archive(
     Ok((files, bytes))
 }
 
-pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
+pub fn materialize(staging: &Path, workspace: &Path, started: Instant) -> Result<()> {
     let mut names = fs::read_dir(staging)
         .cache_err("materialize")?
         .map(|item| {
@@ -505,6 +546,7 @@ pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
     names.sort();
     let mut top_directory_modes = BTreeMap::new();
     for name in &names {
+        check_operation_timeout(started)?;
         match fs::symlink_metadata(workspace.join(name)) {
             Ok(_) => {
                 return Err(CacheError::new(
@@ -531,6 +573,7 @@ pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
     }
     let mut moved = Vec::new();
     for name in &names {
+        check_operation_timeout(started)?;
         if let Err(error) = fs::rename(staging.join(name), workspace.join(name)) {
             for prior in moved.iter().rev() {
                 fs::rename(workspace.join(prior), staging.join(prior))
@@ -560,6 +603,16 @@ pub fn materialize(staging: &Path, workspace: &Path) -> Result<()> {
         }
         restore_top_directory_modes(staging, &top_directory_modes)?;
         return Err(error);
+    }
+    Ok(())
+}
+
+fn check_operation_timeout(started: Instant) -> Result<()> {
+    if started.elapsed() > OPERATION_TIMEOUT {
+        return Err(CacheError::new(
+            "operation-timeout",
+            "cache operation exceeded 20 minutes",
+        ));
     }
     Ok(())
 }

@@ -49,7 +49,7 @@ Lists accept LF/CRLF and ignore blank lines. Boolean values are exactly `true` o
 
 At save, matches are workspace-relative POSIX paths, lexically sorted, de-duplicated, and recorded as expanded paths. Directories recurse and empty directories remain. No matches is `skipped-no-paths`.
 
-At restore, an existing destination causes a fail-closed error; the action never overwrites workspace content.
+At restore, metadata paths must be within the requested `path` patterns, and an existing destination causes a fail-closed error; the action never overwrites workspace content.
 
 ## Entry format and lifecycle
 
@@ -70,9 +70,9 @@ Save uses a same-filesystem private staging directory. It fsyncs payload/metadat
 
 `tar.zst` is created/read by version-locked Rust `tar` and `zstd` dependencies, not host tar/pigz or a shell. Traversal is rooted in private staging and never follows symlinks.
 
-Restore verifies digest then rejects absolute/traversal paths, duplicates/conflicts, all links, special files, and non-directory parents. Limits: 2 GiB compressed, 8 GiB extracted, 100,000 entries, 1 GiB/file, 1 MiB metadata, 20-minute restore. Only complete verified staging content is materialized; errors leave workspace unchanged.
+Restore verifies digest then rejects absolute/traversal paths, duplicates/conflicts, all links, special files, and non-directory parents. Limits: 2 GiB compressed, 8 GiB extracted, 100,000 entries, 1 GiB/file, 1 MiB metadata, and a 20-minute end-to-end operation budget. Only complete verified staging content is materialized; errors leave workspace unchanged.
 
-Save applies the same no-symlink rule to source/parents, rejects special and hard-linked files, snapshots input paths, and compares source stat before/after streaming. Save enforces the same compressed, extracted, entry-count, per-file, and metadata limits as restore and has a 20-minute timeout. Thus v1 intentionally excludes `node_modules` and other symlink-preserving workloads.
+Save applies the same no-symlink rule to source/parents, rejects special and hard-linked files, snapshots input paths, and compares source stat before/after streaming. Save enforces the same compressed, extracted, entry-count, per-file, and metadata limits as restore and uses the same 20-minute end-to-end operation budget. Thus v1 intentionally excludes `node_modules` and other symlink-preserving workloads.
 
 ## Errors, releases, and verification
 

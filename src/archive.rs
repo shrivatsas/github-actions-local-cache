@@ -58,6 +58,40 @@ fn build_matcher(patterns: &[String]) -> Result<GlobSet> {
         .map_err(|error| CacheError::new("invalid-input", error.to_string()))
 }
 
+/// Returns whether every archived path is within the restore request's declared
+/// path scope.  Directory ancestors are retained in an archive so that empty
+/// directories and permissions can be restored; a literal directory pattern
+/// therefore also permits its descendants.
+pub fn paths_match_patterns(paths: &[String], patterns: &[String]) -> Result<bool> {
+    let matcher = build_matcher(patterns)?;
+    let literal_directories = patterns
+        .iter()
+        .map(|pattern| pattern.replace('\\', "/"))
+        .filter(|pattern| {
+            !pattern
+                .bytes()
+                .any(|byte| matches!(byte, b'*' | b'?' | b'[' | b'{'))
+        })
+        .collect::<Vec<_>>();
+
+    Ok(paths.iter().all(|path| {
+        matcher.is_match(path)
+            || literal_directories.iter().any(|directory| {
+                path.strip_prefix(directory)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+            || patterns.iter().any(|pattern| {
+                let portable = pattern.replace('\\', "/");
+                let prefix = portable
+                    .split(['*', '?', '[', '{'])
+                    .next()
+                    .unwrap_or("")
+                    .trim_end_matches('/');
+                !prefix.is_empty() && (path == prefix || prefix.starts_with(&format!("{path}/")))
+            })
+    }))
+}
+
 fn reject_symlink_prefixes(workspace: &Path, pattern: &str) -> Result<()> {
     let portable = pattern.replace('\\', "/");
     let mut cursor = workspace.to_path_buf();
@@ -236,8 +270,7 @@ impl<W: Write> Write for LimitedWriter<W> {
     }
 }
 
-pub fn create_archive(entries: &[ArchiveEntry], output: &Path) -> Result<()> {
-    let started = Instant::now();
+pub fn create_archive(entries: &[ArchiveEntry], output: &Path, started: Instant) -> Result<()> {
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -366,6 +399,7 @@ pub fn extract_archive(
     payload: &Path,
     staging: &Path,
     expected_paths: &[String],
+    started: Instant,
 ) -> Result<(usize, u64)> {
     fs::create_dir(staging).cache_err("restore-staging")?;
     fs::set_permissions(staging, fs::Permissions::from_mode(0o700)).cache_err("restore-staging")?;
@@ -373,13 +407,12 @@ pub fn extract_archive(
         .cache_err("archive-read")?;
     let mut archive = Archive::new(TimedReader {
         inner: decoder,
-        started: Instant::now(),
+        started,
     });
     let mut seen = BTreeMap::<String, EntryKind>::new();
     let mut directories = Vec::new();
     let mut files = 0_usize;
     let mut bytes = 0_u64;
-    let started = Instant::now();
     let archive_entries = archive.entries().cache_err("archive-read")?;
     for item in archive_entries {
         if started.elapsed() > OPERATION_TIMEOUT {

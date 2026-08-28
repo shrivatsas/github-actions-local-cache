@@ -32,6 +32,7 @@ fn restore(
     restore_cache(RestoreRequest {
         context: fixture.context.clone(),
         key: key.to_owned(),
+        patterns: vec!["**".to_owned()],
         restore_keys: prefixes.iter().map(|value| (*value).to_owned()).collect(),
     })
 }
@@ -214,4 +215,22 @@ fn unmatched_patterns_are_skipped() {
         save(&fixture, "empty", &["missing/**"]).unwrap(),
         SaveResult::SkippedNoPaths
     );
+}
+
+#[test]
+fn restore_rejects_entries_outside_the_requested_path_scope() {
+    let fixture = Fixture::new();
+    fs::write(fixture.workspace.join("saved.txt"), "cached").unwrap();
+    save(&fixture, "scope", &["saved.txt"]).unwrap();
+    fs::remove_file(fixture.workspace.join("saved.txt")).unwrap();
+
+    let error = restore_cache(RestoreRequest {
+        context: fixture.context.clone(),
+        key: "scope".to_owned(),
+        patterns: vec!["other.txt".to_owned()],
+        restore_keys: vec![],
+    })
+    .unwrap_err();
+    assert_eq!(error.code, "path-scope-mismatch");
+    assert!(!fixture.workspace.join("saved.txt").exists());
 }

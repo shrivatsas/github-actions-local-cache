@@ -41,6 +41,7 @@ pub struct CompleteMarker {
 pub struct RestoreRequest {
     pub context: CacheContext,
     pub key: String,
+    pub patterns: Vec<String>,
     pub restore_keys: Vec<String>,
 }
 

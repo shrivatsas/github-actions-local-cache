@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use serde::de::DeserializeOwned;
 use time::OffsetDateTime;
@@ -156,9 +157,13 @@ pub fn inspect_entry(path: &Path, context: &CacheContext) -> Result<EntryMetadat
     Ok(metadata)
 }
 
-pub fn validate_entry(path: &Path, context: &CacheContext) -> Result<EntryMetadata> {
+pub fn validate_entry(
+    path: &Path,
+    context: &CacheContext,
+    started: Instant,
+) -> Result<EntryMetadata> {
     let metadata = inspect_entry(path, context)?;
-    if sha256_file(&path.join("payload.tar.zst"))? != metadata.payload_sha256 {
+    if sha256_file(&path.join("payload.tar.zst"), started)? != metadata.payload_sha256 {
         return Err(CacheError::new(
             "invalid-entry",
             "payload digest does not match metadata",

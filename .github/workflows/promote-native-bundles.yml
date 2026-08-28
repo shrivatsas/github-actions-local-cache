@@ -23,7 +23,7 @@ jobs:
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
         run: |
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]] || { echo 'source_run_id must be numeric' >&2; exit 1; }
-          run_json=$(gh run view "$SOURCE_RUN_ID" --json conclusion,workflowName,headBranch)
+          run_json=$(gh run view "$SOURCE_RUN_ID" --repo "${{ github.repository }}" --json conclusion,workflowName,headBranch)
           test "$(jq -r .conclusion <<<"$run_json")" = success
           test "$(jq -r .workflowName <<<"$run_json")" = CI
           test "$(jq -r .headBranch <<<"$run_json")" = main

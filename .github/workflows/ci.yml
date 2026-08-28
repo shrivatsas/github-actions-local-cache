@@ -48,7 +48,7 @@ jobs:
         run: |
           file "target/${{ matrix.target }}/release/local-cache"
           file "restore/dist/local-cache-linux-${{ matrix.architecture }}"
-          file "restore/dist/local-cache-linux-${{ matrix.architecture }}" | grep -F "statically linked"
+          file "restore/dist/local-cache-linux-${{ matrix.architecture }}" | grep -E "statically linked|static-pie linked"
           cmp "target/${{ matrix.target }}/release/local-cache" "restore/dist/local-cache-linux-${{ matrix.architecture }}"
           cmp "target/${{ matrix.target }}/release/local-cache" "save/dist/local-cache-linux-${{ matrix.architecture }}"
       - name: Provision smoke-test cache root

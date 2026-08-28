@@ -31,8 +31,8 @@ Before publishing v1:
 1. Assign a release maintainer and protect immutable version tags.
 2. Run `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and `cargo test --locked`.
 3. Build static binaries from the locked dependencies on trusted Linux x64 and arm64 builders.
-4. Copy the x64 and arm64 binary into both `restore/dist/` and `save/dist/` using the names expected by the launchers.
-5. Verify each binary with `file`, execute the lifecycle suite natively on each architecture, and record SHA-256 checksums and build provenance.
+4. Download the two verified CI artifacts and run `scripts/promote-native-bundles.sh <x64-artifact-directory> <arm64-artifact-directory>`. The script verifies artifact checksums, copies each binary into both action bundles, and regenerates `checksums.sha256`.
+5. Verify each binary with `file`, execute the lifecycle suite natively on each architecture, and record build provenance.
 6. Commit the binaries, review the binary diff/checksums, create release notes, and sign a protected immutable tag. Consumers pin the release's full commit SHA.
 
 GitHub currently exposes `ubuntu-24.04` and `ubuntu-24.04-arm` hosted runner labels for native release validation; see [Choosing the runner for a job](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job).

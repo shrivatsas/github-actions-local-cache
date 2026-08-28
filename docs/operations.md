@@ -31,7 +31,7 @@ Before publishing v1:
 1. Assign a release maintainer and protect immutable version tags.
 2. Run `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`, and `cargo test --locked`.
 3. Build static binaries from the locked dependencies on trusted Linux x64 and arm64 builders.
-4. Download the two verified CI artifacts and run `scripts/promote-native-bundles.sh <x64-artifact-directory> <arm64-artifact-directory>`. The script verifies artifact checksums, copies each binary into both action bundles, and regenerates `checksums.sha256`.
+4. Manually dispatch `Promote verified native bundles` with the successful CI run ID. It downloads the two artifacts, runs `scripts/promote-native-bundles.sh`, commits the verified bundles plus `checksums.sha256` to a promotion branch, and opens a PR targeting `main`. Merge that PR manually after review. The script remains available for audited local promotion.
 5. Verify each binary with `file`, execute the lifecycle suite natively on each architecture, and record build provenance.
 6. Commit the binaries, review the binary diff/checksums, create release notes, and sign a protected immutable tag. Consumers pin the release's full commit SHA.
 

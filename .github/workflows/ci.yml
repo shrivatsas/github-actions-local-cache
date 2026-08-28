@@ -20,7 +20,7 @@ jobs:
             architecture: arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83f3 # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       - name: Install Rust 1.88
@@ -33,8 +33,16 @@ jobs:
         run: cargo +1.88.0 test --locked
       - name: Build native release executable
         run: cargo +1.88.0 build --locked --release
+      - name: Stage native executable in action bundles
+        run: |
+          install -m 0755 target/release/local-cache "restore/dist/local-cache-linux-${{ matrix.architecture }}"
+          install -m 0755 target/release/local-cache "save/dist/local-cache-linux-${{ matrix.architecture }}"
       - name: Inspect release executable
-        run: file target/release/local-cache
+        run: |
+          file target/release/local-cache
+          file "restore/dist/local-cache-linux-${{ matrix.architecture }}"
+          cmp target/release/local-cache "restore/dist/local-cache-linux-${{ matrix.architecture }}"
+          cmp target/release/local-cache "save/dist/local-cache-linux-${{ matrix.architecture }}"
       - name: Provision smoke-test cache root
         run: install -d -m 0700 "${{ runner.temp }}/local-cache-root"
       - name: Create smoke-test input
@@ -63,3 +71,14 @@ jobs:
           test "$SAVE_RESULT" = saved
           test "$RESTORE_MATCH" = exact
           test "$(cat ci-smoke.txt)" = verified
+      - name: Prepare verified native bundle artifact
+        run: |
+          mkdir bundle
+          cp "restore/dist/local-cache-linux-${{ matrix.architecture }}" bundle/
+          sha256sum bundle/* > "bundle/local-cache-linux-${{ matrix.architecture }}.sha256"
+      - name: Upload verified native bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: local-cache-linux-${{ matrix.architecture }}
+          path: bundle/
+          if-no-files-found: error

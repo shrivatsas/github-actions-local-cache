@@ -17,7 +17,7 @@ It is not a remote cache service, runner modification, package-manager installer
 
 v1 supports Linux self-hosted `linux-x64` and `linux-arm64`, a local POSIX filesystem, and Actions Runner v2.328.0 or newer for the Node 24 launcher. It has no network calls and needs no GitHub token.
 
-The root is supplied by `cache-dir` or `CACHE_DIR`; absence is an error. It must be absolute, existing, non-symlinked, outside `GITHUB_WORKSPACE`, owned by the runner user with mode `0700`. Root components are verified without following symlinks. Entries are also namespaced by immutable repository numeric ID for organization and collision avoidance; this is defense in depth, not a security boundary, and never makes a shared root acceptable. Windows, macOS, NFS/SMB, containers without the mount, shared roots, and cross-OS caching are excluded.
+The root is supplied by `cache-dir` or `CACHE_DIR`; absence is an error. It must be absolute, existing, non-symlinked, outside `GITHUB_WORKSPACE`, owned by the runner user with mode `0700`. Root components are verified without following symlinks. On first use, the action atomically writes a private root claim for the immutable repository numeric ID; it fails with `shared-root-detected` if a different repository has claimed the root or if `v1/<other-repository-id>` already exists. Entries are also namespaced by immutable repository numeric ID for organization and collision avoidance; this is defense in depth, not a security boundary, and never makes a shared root acceptable. Windows, macOS, NFS/SMB, containers without the mount, shared roots, and cross-OS caching are excluded.
 
 Operators provision persistent storage plus byte/inode quota and drain the runner before retention. v1 does not introduce a cache daemon or coordinate cleanup with active jobs.
 
@@ -29,7 +29,7 @@ Operators provision persistent storage plus byte/inode quota and drain the runne
   with:
     path: fixtures/extraction/demo-seeds/*.json.gz
     key: demo-bootstrap-extraction-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(...) }}
-    cache-dir: /media/cache/actions
+    cache-dir: /srv/cache/example-repository
 
 # Run guards and consumer gates here.
 
@@ -38,7 +38,7 @@ Operators provision persistent storage plus byte/inode quota and drain the runne
   with:
     path: fixtures/extraction/demo-seeds/*.json.gz
     key: demo-bootstrap-extraction-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles(...) }}
-    cache-dir: /media/cache/actions
+    cache-dir: /srv/cache/example-repository
 ```
 
 Shared inputs: `path` (required workspace-relative newline-delimited literal/glob list), `key` (required, 1–512 UTF-8 bytes), `cache-dir` (optional, overrides `CACHE_DIR`), and `fail-on-cache-error` (default `true`). Restore additionally accepts opt-in ordered `restore-keys` prefixes.

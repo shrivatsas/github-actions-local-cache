@@ -10,6 +10,25 @@ install -d -m 0700 -o actions-runner -g actions-runner /media/cache/my-repositor
 
 Configure byte and inode quotas. Keep the root outside `GITHUB_WORKSPACE`, do not expose it to untrusted or unreviewed pull-request code, and drain the runner before retention or repair work. NFS, SMB, shared roots, Windows, macOS, and containers without the mount are outside v1.
 
+### Shared runner host, multiple repositories
+
+Several repositories may use runners on the same host, but each repository needs its
+own `cache-dir`, not a shared parent. For example, provision the directories as the
+runner user (or use `-o`/`-g` to assign that user when provisioning as root):
+
+```console
+install -d -m 0700 -o actions-runner -g actions-runner /srv/cache/repository-a
+install -d -m 0700 -o actions-runner -g actions-runner /srv/cache/repository-b
+```
+
+The workflows must then use `cache-dir: /srv/cache/repository-a` and
+`cache-dir: /srv/cache/repository-b`, respectively. The action atomically claims a
+root for its immutable repository ID and fails with `shared-root-detected` if a
+different repository has already claimed it or an existing `v1/<other-repository-id>`
+namespace is present. That guard catches configuration mistakes; it does not turn a
+shared filesystem or OS user into an isolation boundary. Configure quota and retention
+per repository, and drain the affected runner before cleanup.
+
 The minimum supported Actions Runner is v2.328.0. GitHub documents `node24` in [action metadata syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax), and the [Node 24 runner migration notice](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/) identifies v2.328.0 as supporting Node 24.
 
 ## Workload boundary

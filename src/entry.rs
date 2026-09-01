@@ -1,6 +1,6 @@
-use std::fs::{self, File};
-use std::io::Read;
-use std::os::unix::fs::MetadataExt;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -30,6 +30,7 @@ pub fn entry_directory(context: &CacheContext, digest: &str) -> PathBuf {
 pub fn ensure_repository_directory(context: &CacheContext) -> Result<PathBuf> {
     let version = context.cache_root.join(CACHE_VERSION);
     let repository = version.join(&context.repository_id);
+    claim_repository_root(context, &version)?;
     create_private_dir(&version)?;
     create_private_dir(&repository)?;
     verify_private_directory(&version)?;
@@ -37,6 +38,93 @@ pub fn ensure_repository_directory(context: &CacheContext) -> Result<PathBuf> {
     sync_directory(&context.cache_root)?;
     sync_directory(&version)?;
     Ok(repository)
+}
+
+fn claim_repository_root(context: &CacheContext, version: &Path) -> Result<()> {
+    reject_foreign_repository_namespace(version, &context.repository_id)?;
+
+    let claim = context.cache_root.join(".local-cache-repository-id");
+    let temporary_claim = context
+        .cache_root
+        .join(format!(".local-cache-repository-id.tmp.{}", Uuid::new_v4()));
+    let published = (|| -> Result<bool> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary_claim)
+            .cache_err("root-claim")?;
+        file.write_all(context.repository_id.as_bytes())
+            .cache_err("root-claim")?;
+        file.write_all(b"\n").cache_err("root-claim")?;
+        file.sync_all().cache_err("root-claim")?;
+
+        match fs::hard_link(&temporary_claim, &claim) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+            Err(error) => Err(CacheError::io("root-claim", error)),
+        }
+    })();
+    let _ = fs::remove_file(&temporary_claim);
+
+    match published? {
+        true => {
+            sync_directory(&context.cache_root)?;
+        }
+        false => {
+            let metadata = fs::symlink_metadata(&claim).cache_err("invalid-root")?;
+            if !metadata.is_file()
+                || metadata.file_type().is_symlink()
+                || metadata.uid() != unsafe { libc::geteuid() }
+                || metadata.mode() & 0o777 != 0o600
+                || metadata.len() > 32
+            {
+                return Err(CacheError::new(
+                    "invalid-root",
+                    "cache root claim must be a runner-owned mode-0600 regular file",
+                ));
+            }
+            let mut value = String::new();
+            File::open(&claim)
+                .cache_err("invalid-root")?
+                .take(33)
+                .read_to_string(&mut value)
+                .cache_err("invalid-root")?;
+            if value != format!("{}\n", context.repository_id) {
+                return Err(CacheError::new(
+                    "shared-root-detected",
+                    "cache-dir is already claimed by a different repository",
+                ));
+            }
+        }
+    }
+
+    // A pre-marker v1 layout may have been created by an earlier release. Check it
+    // both before and after claiming so a legacy shared root is never adopted.
+    reject_foreign_repository_namespace(version, &context.repository_id)
+}
+
+fn reject_foreign_repository_namespace(version: &Path, repository_id: &str) -> Result<()> {
+    let entries = match fs::read_dir(version) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(CacheError::io("invalid-root", error)),
+    };
+    for entry in entries {
+        let entry = entry.cache_err("invalid-root")?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name != repository_id
+            && !name.is_empty()
+            && name.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            return Err(CacheError::new(
+                "shared-root-detected",
+                "cache-dir already contains a namespace for a different repository",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn verify_private_directory(path: &Path) -> Result<()> {

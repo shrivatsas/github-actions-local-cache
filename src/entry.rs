@@ -44,20 +44,34 @@ fn claim_repository_root(context: &CacheContext, version: &Path) -> Result<()> {
     reject_foreign_repository_namespace(version, &context.repository_id)?;
 
     let claim = context.cache_root.join(".local-cache-repository-id");
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&claim)
-    {
-        Ok(mut file) => {
-            file.write_all(context.repository_id.as_bytes())
-                .cache_err("root-claim")?;
-            file.write_all(b"\n").cache_err("root-claim")?;
-            file.sync_all().cache_err("root-claim")?;
+    let temporary_claim = context
+        .cache_root
+        .join(format!(".local-cache-repository-id.tmp.{}", Uuid::new_v4()));
+    let published = (|| -> Result<bool> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary_claim)
+            .cache_err("root-claim")?;
+        file.write_all(context.repository_id.as_bytes())
+            .cache_err("root-claim")?;
+        file.write_all(b"\n").cache_err("root-claim")?;
+        file.sync_all().cache_err("root-claim")?;
+
+        match fs::hard_link(&temporary_claim, &claim) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+            Err(error) => Err(CacheError::io("root-claim", error)),
+        }
+    })();
+    let _ = fs::remove_file(&temporary_claim);
+
+    match published? {
+        true => {
             sync_directory(&context.cache_root)?;
         }
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+        false => {
             let metadata = fs::symlink_metadata(&claim).cache_err("invalid-root")?;
             if !metadata.is_file()
                 || metadata.file_type().is_symlink()
@@ -83,7 +97,6 @@ fn claim_repository_root(context: &CacheContext, version: &Path) -> Result<()> {
                 ));
             }
         }
-        Err(error) => return Err(CacheError::io("root-claim", error)),
     }
 
     // A pre-marker v1 layout may have been created by an earlier release. Check it

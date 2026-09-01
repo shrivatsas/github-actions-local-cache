@@ -82,6 +82,23 @@ fn rejects_cache_root_claimed_by_a_different_repository() {
 }
 
 #[test]
+fn ignores_stale_unpublished_root_claims() {
+    let fixture = Fixture::new();
+    let temporary_claim = fixture
+        .cache_root
+        .join(".local-cache-repository-id.tmp.interrupted");
+    fs::write(&temporary_claim, "12345\n").unwrap();
+    fs::set_permissions(&temporary_claim, fs::Permissions::from_mode(0o600)).unwrap();
+
+    ensure_repository_directory(&fixture.context).unwrap();
+
+    assert_eq!(
+        fs::read_to_string(fixture.cache_root.join(".local-cache-repository-id")).unwrap(),
+        "12345\n"
+    );
+}
+
+#[test]
 fn rejects_legacy_root_with_a_different_repository_namespace() {
     let fixture = Fixture::new();
     let foreign_namespace = fixture.cache_root.join("v1/67890");

@@ -4,6 +4,7 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
 use github_actions_local_cache::config::{parse_boolean, parse_lines};
+use github_actions_local_cache::entry::ensure_repository_directory;
 use github_actions_local_cache::{CacheContext, validate_key, validate_patterns};
 
 use common::Fixture;
@@ -65,4 +66,38 @@ fn rejects_symlinked_cache_root_components() {
     )
     .unwrap_err();
     assert_eq!(error.code, "invalid-root");
+}
+
+#[test]
+fn rejects_cache_root_claimed_by_a_different_repository() {
+    let fixture = Fixture::new();
+    ensure_repository_directory(&fixture.context).unwrap();
+    let other_repository = CacheContext {
+        repository_id: "67890".to_owned(),
+        ..fixture.context.clone()
+    };
+
+    let error = ensure_repository_directory(&other_repository).unwrap_err();
+    assert_eq!(error.code, "shared-root-detected");
+}
+
+#[test]
+fn rejects_legacy_root_with_a_different_repository_namespace() {
+    let fixture = Fixture::new();
+    let foreign_namespace = fixture.cache_root.join("v1/67890");
+    fs::create_dir(fixture.cache_root.join("v1")).unwrap();
+    fs::set_permissions(
+        fixture.cache_root.join("v1"),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    fs::create_dir(foreign_namespace).unwrap();
+    fs::set_permissions(
+        fixture.cache_root.join("v1/67890"),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+
+    let error = ensure_repository_directory(&fixture.context).unwrap_err();
+    assert_eq!(error.code, "shared-root-detected");
 }

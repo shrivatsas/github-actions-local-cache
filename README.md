@@ -6,7 +6,10 @@ Cache data is an optimization, never a source of authority. Use a repository-exc
 
 ## Usage
 
-Provision an absolute cache directory owned by the runner user with mode `0700`, outside `GITHUB_WORKSPACE`. The runner must be Actions Runner v2.328.0 or newer.
+Provision one absolute cache directory per repository, owned by the runner user with
+mode `0700`, outside `GITHUB_WORKSPACE`. The runner must be Actions Runner v2.328.0
+or newer. Do not point multiple repositories at a common parent such as
+`/media/cache/actions`; repository-ID namespacing is not an isolation boundary.
 
 ```yaml
 - id: local-cache
@@ -14,7 +17,7 @@ Provision an absolute cache directory owned by the runner user with mode `0700`,
   with:
     path: fixtures/extraction/demo-seeds/*.json.gz
     key: demo-bootstrap-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('fixtures/**/*.json.gz') }}
-    cache-dir: /media/cache/actions
+    cache-dir: /srv/cache/example-repository
     restore-keys: |
       demo-bootstrap-v1-${{ runner.os }}-${{ runner.arch }}-
 
@@ -26,7 +29,7 @@ Provision an absolute cache directory owned by the runner user with mode `0700`,
   with:
     path: fixtures/extraction/demo-seeds/*.json.gz
     key: demo-bootstrap-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('fixtures/**/*.json.gz') }}
-    cache-dir: /media/cache/actions
+    cache-dir: /srv/cache/example-repository
 ```
 
 Restore reports `cache-hit=true` only for an exact key and reports `cache-match` as `exact`, `fallback`, `miss`, or `error`. Save reports `cache-save` as `saved`, `raced`, `skipped-no-paths`, or `error`.
